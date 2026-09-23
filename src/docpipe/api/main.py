@@ -44,6 +44,7 @@ from docpipe.api.openapi import build_custom_openapi
 from docpipe.core.constants.constants import EnvironmentVariables
 from docpipe.core.job_management.adapters.config.job_management_factory import get_default_factory
 from docpipe.exceptions.docpipe_exceptions import DocpipeException
+from docpipe.integrations.kafka_consumer import KafkaConsumerService
 from docpipe.utils.infrastructure.logging import (
     configure_third_party_loggers,
     set_dpk_log_level_from_ds_log_level,
@@ -69,7 +70,12 @@ async def lifespan(app: FastAPI):
     from docpipe.integrations.secrets.vault_initializer import initialize_secret_providers
 
     initialize_secret_providers()
-    yield
+    kafka_consumer = KafkaConsumerService.from_environment()
+    await kafka_consumer.start()
+    try:
+        yield
+    finally:
+        await kafka_consumer.stop()
 
 
 app = FastAPI(
