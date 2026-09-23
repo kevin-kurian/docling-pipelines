@@ -18,6 +18,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from docpipe.api.api_router import api_router
@@ -64,18 +65,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan."""
-    del app
     get_default_factory().initialize_storage()
     # Register secret providers (no-op when secrets.vault.enabled=false in config)
     from docpipe.integrations.secrets.vault_initializer import initialize_secret_providers
 
     initialize_secret_providers()
-    kafka_consumer = KafkaConsumerService.from_environment()
+    kafka_consumer = KafkaConsumerService()
     await kafka_consumer.start()
+    app.state.kafka_consumer = kafka_consumer
     try:
         yield
     finally:
-        await kafka_consumer.stop()
+        try:
+            await kafka_consumer.stop()
+        finally:
+            del app.state.kafka_consumer
 
 
 app = FastAPI(
@@ -187,10 +191,16 @@ async def root():
     operation_id="health_check",
     summary="Health check endpoint",
 )
-async def health_check():
+async def health_check(request: Request):
     """Health check endpoint returning service status."""
     from docpipe.api.dto.flow_dto import HealthCheckResponse
 
+    kafka_consumer = getattr(request.app.state, "kafka_consumer", None)
+    if kafka_consumer is not None and not kafka_consumer.is_running:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=HealthCheckResponse(status="unhealthy").model_dump(),
+        )
     return HealthCheckResponse(status="healthy")
 
 
