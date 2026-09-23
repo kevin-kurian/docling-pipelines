@@ -18,7 +18,6 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from docpipe.api.api_router import api_router
@@ -65,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Lifespan."""
     job_factory = get_default_factory()
     job_factory.initialize_storage()
@@ -73,18 +72,17 @@ async def lifespan(app: FastAPI):
     from docpipe.integrations.secrets.vault_initializer import initialize_secret_providers
 
     initialize_secret_providers()
-    flow_service = FlowService(repository=get_flow_repository())
-    job_management_service = job_factory.create_job_management_service(flow_service=flow_service)
-    kafka_consumer = KafkaConsumerService(job_management_service=job_management_service)
-    await kafka_consumer.start()
-    app.state.kafka_consumer = kafka_consumer
+    kafka_consumer: KafkaConsumerService | None = None
+    if os.getenv(EnvironmentVariables.KAFKA_BOOTSTRAP_SERVERS):
+        flow_service = FlowService(repository=get_flow_repository())
+        job_management_service = job_factory.create_job_management_service(flow_service=flow_service)
+        kafka_consumer = KafkaConsumerService(job_management_service=job_management_service)
+        kafka_consumer.start()
     try:
         yield
     finally:
-        try:
-            await kafka_consumer.stop()
-        finally:
-            del app.state.kafka_consumer
+        if kafka_consumer is not None:
+            kafka_consumer.stop()
 
 
 app = FastAPI(
@@ -196,16 +194,10 @@ async def root():
     operation_id="health_check",
     summary="Health check endpoint",
 )
-async def health_check(request: Request):
+async def health_check():
     """Health check endpoint returning service status."""
     from docpipe.api.dto.flow_dto import HealthCheckResponse
 
-    kafka_consumer = getattr(request.app.state, "kafka_consumer", None)
-    if kafka_consumer is not None and not kafka_consumer.is_running:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=HealthCheckResponse(status="unhealthy").model_dump(),
-        )
     return HealthCheckResponse(status="healthy")
 
 
