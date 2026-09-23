@@ -26,7 +26,6 @@ from docpipe.api.auth.jwt_handler import JWTClaims, JWTConfig, create_access_tok
 from docpipe.api.auth.ldap_auth import LDAPAuthenticator, LDAPConfig
 from docpipe.api.auth.models import LoginRequest, TokenResponse, User
 from docpipe.api.auth.oauth2_routes import router as oauth2_router
-from docpipe.api.dependencies import get_flow_repository
 from docpipe.api.middleware.api_logging_middleware import ApiLoggingMiddleware
 from docpipe.api.middleware.error_handler import (
     docpipe_exception_handler,
@@ -42,7 +41,6 @@ from docpipe.api.middleware.rate_limit import (
 from docpipe.api.middleware.security_headers import SecurityHeadersMiddleware
 from docpipe.api.middleware.transaction_middleware import TransactionMiddleware
 from docpipe.api.openapi import build_custom_openapi
-from docpipe.core.assets.flows.application.services import FlowService
 from docpipe.core.constants.constants import EnvironmentVariables
 from docpipe.core.job_management.adapters.config.job_management_factory import get_default_factory
 from docpipe.exceptions.docpipe_exceptions import DocpipeException
@@ -74,9 +72,7 @@ async def lifespan(_app: FastAPI):
     initialize_secret_providers()
     kafka_consumer: KafkaConsumerService | None = None
     if os.getenv(EnvironmentVariables.KAFKA_BOOTSTRAP_SERVERS):
-        flow_service = FlowService(repository=get_flow_repository())
-        job_management_service = job_factory.create_job_management_service(flow_service=flow_service)
-        kafka_consumer = KafkaConsumerService(job_management_service=job_management_service)
+        kafka_consumer = KafkaConsumerService()
         kafka_consumer.start()
     try:
         yield
